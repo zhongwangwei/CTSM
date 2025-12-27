@@ -46,6 +46,7 @@
 | Git | 2.0+ |
 | Python | 3.8+ (推荐 3.11+) |
 | Perl | 5.16+ |
+| Perl XML::LibXML | 必需 |
 
 ### 1.3 必需的库
 
@@ -568,7 +569,32 @@ mamba env create -f python/conda_env_ctsm_py.yml
 conda activate ctsm_pylib
 ```
 
-### 5.3 验证 Python 环境
+### 5.3 安装必需的 Perl 模块
+
+CTSM 的 namelist 构建工具需要 Perl 的 XML::LibXML 模块：
+
+```bash
+# 方式一：在 conda 环境中安装（推荐）
+conda activate ctsm_pylib
+conda install -c conda-forge perl-xml-libxml
+
+# 方式二：使用系统包管理器
+# CentOS/RHEL:
+sudo yum install perl-XML-LibXML
+
+# Ubuntu/Debian:
+sudo apt install libxml-libxml-perl
+
+# 方式三：使用 cpan
+cpan XML::LibXML
+```
+
+验证安装：
+```bash
+perl -e "use XML::LibXML; print 'XML::LibXML installed successfully\n';"
+```
+
+### 5.4 验证 Python 环境
 
 ```bash
 conda activate ctsm_pylib
