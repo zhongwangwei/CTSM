@@ -255,9 +255,12 @@ wget https://www.mpich.org/static/downloads/4.2.3/mpich-4.2.3.tar.gz
 tar -xzf mpich-4.2.3.tar.gz
 cd mpich-4.2.3
 
+# 设置安装目录（注意：确保路径末尾没有多余的斜杠）
+export MPICH_INSTALL_DIR=${CTSM_LIBS}/mpich4
+
 # 使用 Intel 编译器编译 MPICH4
 CC=icc CXX=icpc FC=ifort F77=ifort \
-./configure --prefix=$CTSM_LIBS/mpich4 \
+./configure --prefix=${MPICH_INSTALL_DIR} \
     --enable-shared \
     --enable-static \
     --enable-fast=O2 \
@@ -266,19 +269,38 @@ CC=icc CXX=icpc FC=ifort F77=ifort \
     --enable-romio \
     --enable-cxx
 
+# 编译（注意：不要运行 make check，它需要已安装的 mpicc）
 make -j$(nproc)
+
+# 安装
 make install
 
 # 设置 MPICH4 环境变量
-export MPICH_ROOT=$CTSM_LIBS/mpich4
+export MPICH_ROOT=${MPICH_INSTALL_DIR}
 export PATH=$MPICH_ROOT/bin:$PATH
 export LD_LIBRARY_PATH=$MPICH_ROOT/lib:$LD_LIBRARY_PATH
 export MANPATH=$MPICH_ROOT/share/man:$MANPATH
 
 # 验证安装
+which mpifort
 mpifort --version
 mpicc --version
 mpirun --version
+```
+
+**注意**：如果遇到 `--with-device=ch4:ofi` 相关的问题，可以尝试使用更通用的配置：
+
+```bash
+# 替代配置（使用 TCP/IP 通信）
+CC=icc CXX=icpc FC=ifort F77=ifort \
+./configure --prefix=${MPICH_INSTALL_DIR} \
+    --enable-shared \
+    --enable-static \
+    --enable-fast=O2 \
+    --enable-fortran=all \
+    --with-device=ch3:sock \
+    --enable-romio \
+    --enable-cxx
 ```
 
 ### 3.5 安装 HDF5
