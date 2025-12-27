@@ -1,11 +1,12 @@
 # CTSM 从头安装操作手册
 
-## 基于 Intel oneAPI (2022+) Fortran 编译器
+## 基于 Intel oneAPI (2022+) Fortran 编译器 + MPICH4
 
 ---
 
 **版本**: CTSM 5.4
 **编译器**: Intel oneAPI HPC Toolkit (2022.x 及以上)
+**MPI库**: MPICH 4.x
 **更新日期**: 2025年12月
 
 ---
@@ -52,7 +53,7 @@
 - NetCDF-Fortran (4.5+)
 - PnetCDF (可选，用于并行 I/O)
 - HDF5 (1.10+)
-- MPI (Intel MPI 推荐)
+- MPICH (4.0+)
 - ESMF (Earth System Modeling Framework, 8.0+)
 - PIO (Parallel I/O，CTSM 自带)
 
@@ -119,11 +120,11 @@ sudo ./l_HPCKit_p_2022.3.0.8751_offline.sh
 
 ```bash
 # 初始化 Intel oneAPI 环境（默认安装路径）
-source /opt/intel/oneapi/setvars.sh
+# 注意：我们使用 MPICH4 替代 Intel MPI，所以只初始化编译器组件
+source /opt/intel/oneapi/setvars.sh --config=""
 
-# 或者只初始化特定组件
+# 或者只初始化编译器组件（推荐，避免加载 Intel MPI）
 source /opt/intel/oneapi/compiler/latest/env/vars.sh
-source /opt/intel/oneapi/mpi/latest/env/vars.sh
 source /opt/intel/oneapi/mkl/latest/env/vars.sh
 ```
 
@@ -134,10 +135,6 @@ source /opt/intel/oneapi/mkl/latest/env/vars.sh
 ifort --version
 # 或使用新的 LLVM-based 编译器
 ifx --version
-
-# 检查 MPI
-mpiifx --version
-mpiifort --version
 
 # 预期输出示例：
 # ifort (IFORT) 2021.7.0 20220726
@@ -151,12 +148,13 @@ mpiifort --version
 ```bash
 cat > ~/intel_ctsm_env.sh << 'EOF'
 #!/bin/bash
-# Intel oneAPI environment for CTSM
+# Intel oneAPI + MPICH4 environment for CTSM
 
-# 初始化 Intel oneAPI
-source /opt/intel/oneapi/setvars.sh --force
+# 初始化 Intel oneAPI（只加载编译器，不加载 Intel MPI）
+source /opt/intel/oneapi/compiler/latest/env/vars.sh
+source /opt/intel/oneapi/mkl/latest/env/vars.sh
 
-# 设置编译器
+# 设置 Intel 编译器
 export CC=icc
 export CXX=icpc
 export FC=ifort
@@ -170,11 +168,18 @@ export F90=ifort
 # export F77=ifx
 # export F90=ifx
 
-# MPI 编译器包装
-export MPICC=mpiicc
-export MPICXX=mpiicpc
-export MPIFC=mpiifort
-export MPIF90=mpiifort
+# MPICH4 路径（安装后设置）
+export MPICH_ROOT=/opt/ctsm_libs/mpich4
+export PATH=$MPICH_ROOT/bin:$PATH
+export LD_LIBRARY_PATH=$MPICH_ROOT/lib:$LD_LIBRARY_PATH
+export MANPATH=$MPICH_ROOT/share/man:$MANPATH
+
+# MPI 编译器包装（MPICH4 风格）
+export MPICC=mpicc
+export MPICXX=mpicxx
+export MPIFC=mpifort
+export MPIF90=mpifort
+export MPIF77=mpifort
 
 # 编译器标志
 export CFLAGS="-O2 -xHost"
@@ -182,9 +187,9 @@ export CXXFLAGS="-O2 -xHost"
 export FFLAGS="-O2 -xHost -traceback"
 export FCFLAGS="-O2 -xHost -traceback"
 
-echo "Intel oneAPI environment loaded for CTSM"
+echo "Intel oneAPI + MPICH4 environment loaded for CTSM"
 echo "Fortran Compiler: $(which ifort)"
-echo "MPI Fortran: $(which mpiifort)"
+echo "MPI Fortran: $(which mpifort)"
 EOF
 
 chmod +x ~/intel_ctsm_env.sh
@@ -199,11 +204,12 @@ chmod +x ~/intel_ctsm_env.sh
 依赖库需要按以下顺序安装：
 
 1. zlib
-2. HDF5
-3. NetCDF-C
-4. NetCDF-Fortran
-5. PnetCDF (可选)
-6. ESMF
+2. **MPICH4**（MPI 库）
+3. HDF5
+4. NetCDF-C
+5. NetCDF-Fortran
+6. PnetCDF (可选)
+7. ESMF
 
 ### 3.2 设置安装目录
 
@@ -217,8 +223,15 @@ sudo chown $USER:$USER $CTSM_LIBS
 mkdir -p ~/ctsm_build
 cd ~/ctsm_build
 
-# 加载 Intel 环境
-source ~/intel_ctsm_env.sh
+# 加载 Intel 编译器环境（暂时不加载 MPI，因为还没安装）
+source /opt/intel/oneapi/compiler/latest/env/vars.sh
+source /opt/intel/oneapi/mkl/latest/env/vars.sh
+
+export CC=icc
+export CXX=icpc
+export FC=ifort
+export F77=ifort
+export F90=ifort
 ```
 
 ### 3.3 安装 zlib
@@ -234,7 +247,41 @@ make -j$(nproc)
 make install
 ```
 
-### 3.4 安装 HDF5
+### 3.4 安装 MPICH4
+
+```bash
+cd ~/ctsm_build
+wget https://www.mpich.org/static/downloads/4.2.3/mpich-4.2.3.tar.gz
+tar -xzf mpich-4.2.3.tar.gz
+cd mpich-4.2.3
+
+# 使用 Intel 编译器编译 MPICH4
+CC=icc CXX=icpc FC=ifort F77=ifort \
+./configure --prefix=$CTSM_LIBS/mpich4 \
+    --enable-shared \
+    --enable-static \
+    --enable-fast=O2 \
+    --enable-fortran=all \
+    --with-device=ch4:ofi \
+    --enable-romio \
+    --enable-cxx
+
+make -j$(nproc)
+make install
+
+# 设置 MPICH4 环境变量
+export MPICH_ROOT=$CTSM_LIBS/mpich4
+export PATH=$MPICH_ROOT/bin:$PATH
+export LD_LIBRARY_PATH=$MPICH_ROOT/lib:$LD_LIBRARY_PATH
+export MANPATH=$MPICH_ROOT/share/man:$MANPATH
+
+# 验证安装
+mpifort --version
+mpicc --version
+mpirun --version
+```
+
+### 3.5 安装 HDF5
 
 ```bash
 cd ~/ctsm_build
@@ -242,8 +289,8 @@ wget https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.14/hdf5-1.14.3/src/hd
 tar -xzf hdf5-1.14.3.tar.gz
 cd hdf5-1.14.3
 
-# 配置 HDF5（启用并行支持）
-CC=mpiicc FC=mpiifort \
+# 配置 HDF5（启用并行支持，使用 MPICH4）
+CC=mpicc FC=mpifort \
 ./configure --prefix=$CTSM_LIBS \
     --enable-parallel \
     --enable-fortran \
@@ -258,7 +305,7 @@ export HDF5_DIR=$CTSM_LIBS
 export LD_LIBRARY_PATH=$CTSM_LIBS/lib:$LD_LIBRARY_PATH
 ```
 
-### 3.5 安装 NetCDF-C
+### 3.6 安装 NetCDF-C
 
 ```bash
 cd ~/ctsm_build
@@ -266,7 +313,7 @@ wget https://downloads.unidata.ucar.edu/netcdf-c/4.9.2/netcdf-c-4.9.2.tar.gz
 tar -xzf netcdf-c-4.9.2.tar.gz
 cd netcdf-c-4.9.2
 
-CC=mpiicc \
+CC=mpicc \
 CPPFLAGS="-I$CTSM_LIBS/include" \
 LDFLAGS="-L$CTSM_LIBS/lib" \
 ./configure --prefix=$CTSM_LIBS \
@@ -282,7 +329,7 @@ export NETCDF=$CTSM_LIBS
 export PATH=$CTSM_LIBS/bin:$PATH
 ```
 
-### 3.6 安装 NetCDF-Fortran
+### 3.7 安装 NetCDF-Fortran
 
 ```bash
 cd ~/ctsm_build
@@ -290,7 +337,7 @@ wget https://downloads.unidata.ucar.edu/netcdf-fortran/4.6.1/netcdf-fortran-4.6.
 tar -xzf netcdf-fortran-4.6.1.tar.gz
 cd netcdf-fortran-4.6.1
 
-CC=mpiicc FC=mpiifort F77=mpiifort \
+CC=mpicc FC=mpifort F77=mpifort \
 CPPFLAGS="-I$CTSM_LIBS/include" \
 LDFLAGS="-L$CTSM_LIBS/lib" \
 LIBS="-lnetcdf -lhdf5_hl -lhdf5 -lz" \
@@ -301,7 +348,7 @@ make -j$(nproc)
 make install
 ```
 
-### 3.7 安装 PnetCDF（可选，用于并行 I/O）
+### 3.8 安装 PnetCDF（可选，用于并行 I/O）
 
 ```bash
 cd ~/ctsm_build
@@ -309,7 +356,7 @@ wget https://parallel-netcdf.github.io/Release/pnetcdf-1.12.3.tar.gz
 tar -xzf pnetcdf-1.12.3.tar.gz
 cd pnetcdf-1.12.3
 
-CC=mpiicc CXX=mpiicpc FC=mpiifort F77=mpiifort \
+CC=mpicc CXX=mpicxx FC=mpifort F77=mpifort \
 ./configure --prefix=$CTSM_LIBS \
     --enable-shared
 
@@ -319,7 +366,7 @@ make install
 export PNETCDF=$CTSM_LIBS
 ```
 
-### 3.8 安装 ESMF
+### 3.9 安装 ESMF
 
 ```bash
 cd ~/ctsm_build
@@ -327,11 +374,11 @@ wget https://github.com/esmf-org/esmf/archive/refs/tags/v8.6.0.tar.gz
 tar -xzf v8.6.0.tar.gz
 cd esmf-8.6.0
 
-# 设置 ESMF 编译环境
+# 设置 ESMF 编译环境（使用 MPICH4）
 export ESMF_DIR=$PWD
 export ESMF_INSTALL_PREFIX=$CTSM_LIBS/esmf
 export ESMF_COMPILER=intel
-export ESMF_COMM=intelmpi
+export ESMF_COMM=mpich          # 使用 mpich 而非 intelmpi
 export ESMF_NETCDF=nc-config
 export ESMF_NETCDF_INCLUDE=$CTSM_LIBS/include
 export ESMF_NETCDF_LIBPATH=$CTSM_LIBS/lib
@@ -343,13 +390,17 @@ export ESMF_PNETCDF_LIBPATH=$CTSM_LIBS/lib
 make -j$(nproc)
 make install
 
-# 设置 ESMF 环境变量
-export ESMFMKFILE=$ESMF_INSTALL_PREFIX/lib/libO/Linux.intel.64.intelmpi.default/esmf.mk
+# 设置 ESMF 环境变量（注意路径包含 mpich）
+export ESMFMKFILE=$ESMF_INSTALL_PREFIX/lib/libO/Linux.intel.64.mpich.default/esmf.mk
 ```
 
-### 3.9 验证依赖库安装
+### 3.10 验证依赖库安装
 
 ```bash
+# 检查 MPICH4
+mpifort --version
+mpirun --version
+
 # 检查 NetCDF
 nc-config --all
 nf-config --all
@@ -361,16 +412,22 @@ h5pfc --version
 cat $ESMFMKFILE | grep ESMF_VERSION
 ```
 
-### 3.10 创建依赖库环境脚本
+### 3.11 创建依赖库环境脚本
 
 ```bash
 cat > $CTSM_LIBS/ctsm_libs_env.sh << 'EOF'
 #!/bin/bash
-# CTSM Libraries Environment
+# CTSM Libraries Environment (with MPICH4)
 
 export CTSM_LIBS=/opt/ctsm_libs
 
-# 路径设置
+# MPICH4 路径
+export MPICH_ROOT=$CTSM_LIBS/mpich4
+export PATH=$MPICH_ROOT/bin:$PATH
+export LD_LIBRARY_PATH=$MPICH_ROOT/lib:$LD_LIBRARY_PATH
+export MANPATH=$MPICH_ROOT/share/man:$MANPATH
+
+# 其他库路径设置
 export PATH=$CTSM_LIBS/bin:$PATH
 export LD_LIBRARY_PATH=$CTSM_LIBS/lib:$LD_LIBRARY_PATH
 export LIBRARY_PATH=$CTSM_LIBS/lib:$LIBRARY_PATH
@@ -386,11 +443,12 @@ export HDF5_DIR=$CTSM_LIBS
 # PnetCDF
 export PNETCDF=$CTSM_LIBS
 
-# ESMF
+# ESMF (使用 mpich 路径)
 export ESMF_ROOT=$CTSM_LIBS/esmf
-export ESMFMKFILE=$ESMF_ROOT/lib/libO/Linux.intel.64.intelmpi.default/esmf.mk
+export ESMFMKFILE=$ESMF_ROOT/lib/libO/Linux.intel.64.mpich.default/esmf.mk
 
-echo "CTSM libraries environment loaded"
+echo "CTSM libraries environment loaded (with MPICH4)"
+echo "MPICH: $MPICH_ROOT"
 echo "NETCDF: $NETCDF"
 echo "ESMFMKFILE: $ESMFMKFILE"
 EOF
@@ -529,11 +587,11 @@ cat > ~/.cime/config_machines.xml << 'EOF'
 <?xml version="1.0"?>
 <config_machines version="2.0">
   <machine MACH="mylinux">
-    <DESC>Custom Linux machine with Intel oneAPI</DESC>
+    <DESC>Custom Linux machine with Intel oneAPI + MPICH4</DESC>
     <NODENAME_REGEX>.*</NODENAME_REGEX>
     <OS>LINUX</OS>
     <COMPILERS>intel</COMPILERS>
-    <MPILIBS>intelmpi</MPILIBS>
+    <MPILIBS>mpich</MPILIBS>
     <PROJECT>ctsm</PROJECT>
     <SAVE_TIMING_DIR/>
     <CIME_OUTPUT_ROOT>$ENV{HOME}/ctsm_cases</CIME_OUTPUT_ROOT>
@@ -549,7 +607,7 @@ cat > ~/.cime/config_machines.xml << 'EOF'
     <MAX_TASKS_PER_NODE>32</MAX_TASKS_PER_NODE>
     <MAX_MPITASKS_PER_NODE>32</MAX_MPITASKS_PER_NODE>
     <PROJECT_REQUIRED>FALSE</PROJECT_REQUIRED>
-    <mpirun mpilib="intelmpi">
+    <mpirun mpilib="mpich">
       <executable>mpirun</executable>
       <arguments>
         <arg name="ntasks">-np $TOTALPES</arg>
@@ -563,7 +621,7 @@ cat > ~/.cime/config_machines.xml << 'EOF'
       <env name="OMP_STACKSIZE">256M</env>
     </environment_variables>
     <environment_variables comp_interface="nuopc">
-      <env name="ESMFMKFILE">/opt/ctsm_libs/esmf/lib/libO/Linux.intel.64.intelmpi.default/esmf.mk</env>
+      <env name="ESMFMKFILE">/opt/ctsm_libs/esmf/lib/libO/Linux.intel.64.mpich.default/esmf.mk</env>
     </environment_variables>
   </machine>
 </config_machines>
@@ -591,14 +649,14 @@ cat > ~/.cime/config_compilers.xml << 'EOF'
     <FFLAGS_NOOPT>
       <base> -O0 </base>
     </FFLAGS_NOOPT>
-    <FC>mpiifort</FC>
-    <CC>mpiicc</CC>
-    <CXX>mpiicpc</CXX>
-    <MPIFC>mpiifort</MPIFC>
-    <MPICC>mpiicc</MPICC>
-    <MPICXX>mpiicpc</MPICXX>
+    <FC>mpifort</FC>
+    <CC>mpicc</CC>
+    <CXX>mpicxx</CXX>
+    <MPIFC>mpifort</MPIFC>
+    <MPICC>mpicc</MPICC>
+    <MPICXX>mpicxx</MPICXX>
     <LDFLAGS>
-      <base> -L/opt/ctsm_libs/lib </base>
+      <base> -L/opt/ctsm_libs/lib -L/opt/ctsm_libs/mpich4/lib </base>
     </LDFLAGS>
     <SLIBS>
       <base> -L/opt/ctsm_libs/lib -lnetcdff -lnetcdf -lpnetcdf -lhdf5_hl -lhdf5 -lz </base>
@@ -875,26 +933,31 @@ mpirun -np 4 hostname
 
 ## 9. 附录：环境变量速查表
 
-### 9.1 Intel oneAPI 环境变量
+### 9.1 Intel oneAPI + MPICH4 环境变量
 
 ```bash
-# 编译器
+# Intel 编译器
 export CC=icc                # C 编译器
 export CXX=icpc              # C++ 编译器
 export FC=ifort              # Fortran 编译器
 export F77=ifort             # Fortran 77 编译器
 export F90=ifort             # Fortran 90 编译器
 
-# MPI 包装
-export MPICC=mpiicc
-export MPICXX=mpiicpc
-export MPIFC=mpiifort
-export MPIF90=mpiifort
-
 # 使用新的 LLVM 编译器（Intel oneAPI 2023+）
-export CC=icx
-export CXX=icpx
-export FC=ifx
+# export CC=icx
+# export CXX=icpx
+# export FC=ifx
+
+# MPICH4 路径
+export MPICH_ROOT=/opt/ctsm_libs/mpich4
+export PATH=$MPICH_ROOT/bin:$PATH
+export LD_LIBRARY_PATH=$MPICH_ROOT/lib:$LD_LIBRARY_PATH
+
+# MPI 包装（MPICH4 风格）
+export MPICC=mpicc
+export MPICXX=mpicxx
+export MPIFC=mpifort
+export MPIF90=mpifort
 ```
 
 ### 9.2 库路径环境变量
@@ -922,8 +985,8 @@ export NETCDF_FORTRAN_PATH=$CTSM_LIBS
 export ESMF_DIR=/path/to/esmf/source
 export ESMF_INSTALL_PREFIX=$CTSM_LIBS/esmf
 export ESMF_COMPILER=intel
-export ESMF_COMM=intelmpi
-export ESMFMKFILE=$ESMF_INSTALL_PREFIX/lib/libO/Linux.intel.64.intelmpi.default/esmf.mk
+export ESMF_COMM=mpich                    # 使用 mpich 而非 intelmpi
+export ESMFMKFILE=$ESMF_INSTALL_PREFIX/lib/libO/Linux.intel.64.mpich.default/esmf.mk
 ```
 
 ### 9.5 CTSM/CIME 环境变量
@@ -940,50 +1003,60 @@ export CIME_OUTPUT_ROOT=$HOME/ctsm_cases
 ```bash
 cat > ~/load_ctsm_env.sh << 'EOF'
 #!/bin/bash
-# Complete CTSM Environment Loading Script
+# Complete CTSM Environment Loading Script (Intel oneAPI + MPICH4)
 
 echo "Loading CTSM environment..."
 
-# 1. Load Intel oneAPI
-source /opt/intel/oneapi/setvars.sh --force 2>/dev/null
+# 1. Load Intel oneAPI (only compiler, not Intel MPI)
+source /opt/intel/oneapi/compiler/latest/env/vars.sh 2>/dev/null
+source /opt/intel/oneapi/mkl/latest/env/vars.sh 2>/dev/null
 
-# 2. Set compilers
+# 2. Set Intel compilers
 export CC=icc
 export CXX=icpc
 export FC=ifort
 export F77=ifort
 export F90=ifort
-export MPICC=mpiicc
-export MPICXX=mpiicpc
-export MPIFC=mpiifort
-export MPIF90=mpiifort
 
-# 3. Load libraries
+# 3. Load MPICH4
 export CTSM_LIBS=/opt/ctsm_libs
+export MPICH_ROOT=$CTSM_LIBS/mpich4
+export PATH=$MPICH_ROOT/bin:$PATH
+export LD_LIBRARY_PATH=$MPICH_ROOT/lib:$LD_LIBRARY_PATH
+export MANPATH=$MPICH_ROOT/share/man:$MANPATH
+
+# 4. Set MPI compilers (MPICH4 style)
+export MPICC=mpicc
+export MPICXX=mpicxx
+export MPIFC=mpifort
+export MPIF90=mpifort
+
+# 5. Load other libraries
 export PATH=$CTSM_LIBS/bin:$PATH
 export LD_LIBRARY_PATH=$CTSM_LIBS/lib:$LD_LIBRARY_PATH
 export LIBRARY_PATH=$CTSM_LIBS/lib:$LIBRARY_PATH
 export CPATH=$CTSM_LIBS/include:$CPATH
 
-# 4. NetCDF
+# 6. NetCDF
 export NETCDF=$CTSM_LIBS
 export NETCDF_PATH=$CTSM_LIBS
 
-# 5. ESMF
+# 7. ESMF (with mpich path)
 export ESMF_ROOT=$CTSM_LIBS/esmf
-export ESMFMKFILE=$ESMF_ROOT/lib/libO/Linux.intel.64.intelmpi.default/esmf.mk
+export ESMFMKFILE=$ESMF_ROOT/lib/libO/Linux.intel.64.mpich.default/esmf.mk
 
-# 6. CTSM paths
+# 8. CTSM paths
 export CTSMROOT=$HOME/CTSM
 export CIMEROOT=$CTSMROOT/cime
 export DIN_LOC_ROOT=$HOME/cesm_inputdata
 
-# 7. Activate conda environment
+# 9. Activate conda environment
 conda activate ctsm_pylib 2>/dev/null
 
 echo "Environment loaded successfully!"
 echo "  Fortran Compiler: $(which ifort 2>/dev/null || echo 'Not found')"
-echo "  MPI Fortran: $(which mpiifort 2>/dev/null || echo 'Not found')"
+echo "  MPI Fortran: $(which mpifort 2>/dev/null || echo 'Not found')"
+echo "  MPICH: $MPICH_ROOT"
 echo "  NetCDF: $NETCDF"
 echo "  ESMFMKFILE: $ESMFMKFILE"
 echo "  CTSMROOT: $CTSMROOT"
@@ -1007,6 +1080,12 @@ chmod +x ~/load_ctsm_env.sh
 
 - Intel oneAPI 文档: https://www.intel.com/content/www/us/en/developer/tools/oneapi/documentation.html
 - Fortran 编译器指南: https://www.intel.com/content/www/us/en/docs/fortran-compiler/
+
+### MPICH 资源
+
+- MPICH 官方网站: https://www.mpich.org/
+- MPICH 文档: https://www.mpich.org/documentation/guides/
+- MPICH 下载: https://www.mpich.org/downloads/
 
 ### 社区支持
 
