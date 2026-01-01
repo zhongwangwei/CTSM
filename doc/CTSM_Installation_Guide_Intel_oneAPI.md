@@ -289,10 +289,34 @@ mpicc --version
 mpirun --version
 ```
 
-**注意**：如果遇到 `--with-device=ch4:ofi` 相关的问题，可以尝试使用更通用的配置：
+**关于设备选项的说明**：
+
+`--with-device=ch4:ofi` 使用 libfabric 库进行高性能网络通信，但需要额外的系统依赖：
+- **libfabric**: 高性能网络接口库
+- **libpciaccess**: PCI 设备访问库（libfabric 的依赖）
+
+如果运行时遇到 `libpciaccess.so.0: cannot open shared object file` 错误，有两种解决方案：
+
+**方案一：安装 libpciaccess 依赖**
 
 ```bash
-# 替代配置（使用 TCP/IP 通信）
+# CentOS/RHEL:
+sudo yum install libpciaccess libpciaccess-devel
+
+# Ubuntu/Debian:
+sudo apt install libpciaccess0 libpciaccess-dev
+
+# 或使用 conda（如果没有 sudo 权限）:
+conda install -c conda-forge libpciaccess
+```
+
+**方案二：使用 ch3:sock 设备（推荐用于简单配置）**
+
+如果不需要高性能网络或继续遇到依赖问题，可以使用 TCP/IP 通信的 ch3:sock 设备，它没有额外的系统依赖：
+
+```bash
+# 替代配置（使用 TCP/IP 通信，无额外依赖）
+make clean  # 如果之前编译过，先清理
 CC=icc CXX=icpc FC=ifort F77=ifort \
 ./configure --prefix=${MPICH_INSTALL_DIR} \
     --enable-shared \
@@ -302,7 +326,15 @@ CC=icc CXX=icpc FC=ifort F77=ifort \
     --with-device=ch3:sock \
     --enable-romio \
     --enable-cxx
+make -j$(nproc)
+make install
 ```
+
+ch3:sock 的特点：
+- ✓ 无需 libfabric 和 libpciaccess
+- ✓ 配置简单，兼容性好
+- ✓ 适合单机或小规模集群
+- ✗ 性能略低于 ch4:ofi（对于大规模并行计算）
 
 ### 3.5 安装 HDF5
 
@@ -949,6 +981,55 @@ mpirun --version
 
 # 测试 MPI
 mpirun -np 4 hostname
+```
+
+#### 问题: libpciaccess.so.0 找不到
+
+如果使用 `--with-device=ch4:ofi` 编译的 MPICH4，运行时可能报错：
+```
+mpirun: error while loading shared libraries: libpciaccess.so.0: cannot open shared object file: No such file or directory
+```
+
+**解决方案一：安装 libpciaccess**
+
+```bash
+# 使用系统包管理器（需要 sudo）
+sudo yum install libpciaccess libpciaccess-devel  # CentOS/RHEL
+sudo apt install libpciaccess0 libpciaccess-dev   # Ubuntu/Debian
+
+# 或使用 conda（无需 sudo）
+conda install -c conda-forge libpciaccess
+# 然后在运行脚本中添加 conda 库路径：
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+```
+
+**解决方案二：重新编译 MPICH4 使用 ch3:sock**
+
+```bash
+cd /path/to/mpich-4.x.x
+make clean
+./configure --prefix=/your/mpich4/path \
+    CC=icc CXX=icpc FC=ifort F77=ifort \
+    --with-device=ch3:sock \
+    --enable-fortran=all \
+    --enable-shared
+make -j 8
+make install
+```
+
+#### 问题: Conda MPI 库冲突
+
+如果同时安装了 conda 和自编译的 MPICH4，可能出现库冲突导致 symbol lookup 错误。
+
+**解决方案：** 在运行脚本中完全重置 LD_LIBRARY_PATH，确保自编译库优先：
+
+```bash
+# 在 LSF/PBS/Slurm 提交脚本中
+unset CONDA_PREFIX
+unset CONDA_DEFAULT_ENV
+
+# 完全重置而非追加
+export LD_LIBRARY_PATH=/your/mpich4/lib:/your/ctsm_libs/lib:/path/to/intel/lib:/usr/lib64
 ```
 
 #### 问题: 内存不足
